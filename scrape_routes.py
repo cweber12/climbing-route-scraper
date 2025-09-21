@@ -1,3 +1,9 @@
+# scrape_routes.py
+# ---------------------------------------------------------------------------
+# Script to scrape climbing route data from Mountain Project and store it in a MySQL database.
+# It uses Selenium for dynamic content and BeautifulSoup for parsing HTML.
+# ---------------------------------------------------------------------------
+
 import os
 import re
 import time
@@ -12,9 +18,11 @@ import tempfile
 
 load_dotenv()
 
+# Default start URL if none provided in args
 START_URL = "https://www.mountainproject.com/area/105792216/nevermind-wall"
 visited = set()
 
+# Set up Selenium WebDriver
 def get_driver():
     options = Options()
     options.add_argument("--headless=new")
@@ -26,11 +34,13 @@ def get_driver():
     options.add_argument("--disable-dev-shm-usage")
     return webdriver.Chrome(options=options)
 
+# Fetch and parse page
 def get_soup(url, driver):
     driver.get(url)
     time.sleep(2)
     return BeautifulSoup(driver.page_source, "html.parser")
 
+# Extract breadcrumbs for area/route hierarchy
 def extract_breadcrumbs(soup):
     breadcrumbs = []
     for a in soup.select("div.mb-half.small.text-warm a"):
@@ -46,6 +56,7 @@ def extract_breadcrumbs(soup):
                 })
     return breadcrumbs
 
+# Extract current location details
 def extract_current_location(soup, fallback_url):
     h1 = soup.find("h1")
     name = h1.text.strip() if h1 else "Unknown"
@@ -59,6 +70,7 @@ def extract_current_location(soup, fallback_url):
         "url": url
     }
 
+# Extract GPS coordinates if available
 def extract_coordinates(soup):
     gps_row = soup.select_one("tr:has(td:-soup-contains('GPS'))")
     if gps_row:
@@ -70,12 +82,14 @@ def extract_coordinates(soup):
                 return float(match.group(1)), float(match.group(2))
     return None, None
 
+# Extract links to sub-areas
 def extract_subarea_links(soup):
     return [
         urljoin("https://www.mountainproject.com", a["href"])
         for a in soup.select("div.lef-nav-row a[href*='/area/']")
     ]
 
+# Extract routes listed on the page
 def extract_routes(soup):
     routes = []
     table = soup.find("table", id="left-nav-route-table")
@@ -95,6 +109,7 @@ def extract_routes(soup):
                 })
     return routes
 
+# Insert location into DB
 def insert_location(level, loc_id, name, parent_id, lat, lng, conn):
     cursor = conn.cursor()
     if level == 0:
@@ -110,6 +125,7 @@ def insert_location(level, loc_id, name, parent_id, lat, lng, conn):
                        (loc_id, name, parent_id, f"POINT({lng} {lat})" if lat and lng else None))
     conn.commit()
 
+# Insert routes into DB
 def insert_routes(routes, parent_id, conn):
     cursor = conn.cursor()
     for r in routes:
@@ -120,19 +136,21 @@ def insert_routes(routes, parent_id, conn):
                        (r['id'], r['name'], parent_id, r['rating']))
     conn.commit()
 
+# Main crawling function
 def crawl_area(url):
-    driver = get_driver()
-    conn = get_connection()
+    driver = get_driver() # Initialize WebDriver
+    conn = get_connection() # Initialize DB connection
 
     try:
-        soup = get_soup(url, driver)
-        if not soup:
+        soup = get_soup(url, driver) # Fetch and parse the page
+        if not soup: 
             return
 
         current = extract_current_location(soup, driver.current_url)
         breadcrumbs = extract_breadcrumbs(soup)
-        hierarchy = breadcrumbs + [current]
+        hierarchy = breadcrumbs + [current] # Full hierarchy from root to current
 
+        # Insert all hierarchy levels
         for i, entry in enumerate(hierarchy):
             if entry["id"] in visited:
                 continue
@@ -164,6 +182,7 @@ def crawl_area(url):
         conn.close()
         print("Scraping complete.")
 
+# Start crawling from the provided or default URL
 if __name__ == "__main__":
     import sys
     if len(sys.argv) != 2:

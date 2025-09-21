@@ -1,3 +1,8 @@
+#route_db_connect.py
+# ---------------------------------------------------------------------------
+# Module to handle database connection using environment variables.
+# ---------------------------------------------------------------------------
+
 import os
 import pymysql
 from dotenv import load_dotenv
@@ -5,6 +10,7 @@ from dotenv import load_dotenv
 # Load variables from .env file
 load_dotenv()
 
+# Establish and return a database connection
 def get_connection():
     try:
         conn = pymysql.connect(

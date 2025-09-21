@@ -1,3 +1,9 @@
+# create_schema.py
+# ---------------------------------------------------------------------------
+# Script to create the database schema for storing climbing routes and locations.
+# It creates the database if it doesn't exist, then sets up the necessary tables.
+# ---------------------------------------------------------------------------
+
 import pymysql
 import os
 from dotenv import load_dotenv
