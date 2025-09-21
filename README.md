@@ -58,7 +58,7 @@ All Locations (root)
 1. **Clone the repository**:
 
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/cweber12/climbing-route-scraper.git
    cd route_scraper
    ```
 
