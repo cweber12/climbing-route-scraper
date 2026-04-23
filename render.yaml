@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: climbing-route-scraper-api
+    env: docker
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    envVars:
+      - key: DATABASE_URL
+        sync: false   # set this manually in the Render dashboard — never commit it
+    autoDeploy: true

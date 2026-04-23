@@ -4,6 +4,13 @@ __pycache__/
 *.pyd
 .git/
 .env
+.env.example
 .DS_Store
 *.db
 *.log
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+README.md
+docker-compose.yml

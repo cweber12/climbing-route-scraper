@@ -1,4 +1,19 @@
-pymysql
-python-dotenv
-beautifulsoup4
-selenium
+# Root requirements — used by CI only.
+# Combines deps from api/ and scraper/ so the test suite can import both.
+# Do NOT use this in either Docker image; each service has its own requirements.txt.
+
+psycopg2-binary==2.9.9
+python-dotenv==1.0.1
+beautifulsoup4==4.12.3
+selenium==4.21.0
+lxml==5.2.2
+
+# API
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+pydantic==2.7.1
+httpx==0.27.0
+
+# Testing
+pytest==8.2.0
+pytest-mock==3.14.0

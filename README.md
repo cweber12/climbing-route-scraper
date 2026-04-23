@@ -1,179 +1,285 @@
 # Climbing Route Scraper
 
-A web scraper that extracts climbing area and route data from Mountain Project and stores it in a MySQL database. This tool crawls Mountain Project URLs to collect comprehensive climbing information including areas, routes, ratings, and location hierarchies.
+[![CI](https://github.com/cweber12/climbing-route-scraper/actions/workflows/ci.yml/badge.svg)](https://github.com/cweber12/climbing-route-scraper/actions/workflows/ci.yml)
+[![Docker](https://github.com/cweber12/climbing-route-scraper/actions/workflows/docker.yml/badge.svg)](https://github.com/cweber12/climbing-route-scraper/actions/workflows/docker.yml)
 
-## Features
+A two-part system for collecting and serving climbing data from [Mountain Project](https://www.mountainproject.com):
 
-- **Automated Web Scraping**: Uses Selenium WebDriver with headless Chrome/Chromium
-- **Hierarchical Data Collection**: Crawls parent/child relationships between climbing areas
-- **MySQL Database Integration**: Stores data in a structured relational database
-- **Docker Support**: Containerized deployment for easy setup and portability
-- **Environment Configuration**: Secure credential management via `.env` files
+1. **Scraper** — a Docker container you run locally. Feed it any Mountain Project URL and it crawls the full hierarchy (parent areas + all child areas/routes) and writes everything to a PostgreSQL database.
+2. **API** — a lightweight FastAPI service hosted for free on [Render](https://render.com), backed by a free [Neon](https://neon.tech) PostgreSQL database. Query areas and routes over HTTP.
+
+---
+
+## Table of Contents
+
+- [Climbing Route Scraper](#climbing-route-scraper)
+  - [Table of Contents](#table-of-contents)
+  - [Architecture](#architecture)
+  - [API Reference](#api-reference)
+    - [Operations](#operations)
+    - [Scraper](#scraper)
+    - [Data Query](#data-query)
+  - [Database Schema](#database-schema)
+  - [Quick Start — Local Scraping](#quick-start--local-scraping)
+  - [Environment Variables](#environment-variables)
+  - [Running Tests](#running-tests)
+  - [CI/CD](#cicd)
+  - [Hosting Guide — Free Tier Stack](#hosting-guide--free-tier-stack)
+    - [Database: Neon (PostgreSQL, free forever)](#database-neon-postgresql-free-forever)
+    - [API: Render (free tier)](#api-render-free-tier)
+    - [Workflow Summary](#workflow-summary)
+
+---
+
+## Architecture
+
+```
+┌─────────────────── Local Machine ───────────────────────┐
+│                                                          │
+│  docker run ... climbing-route-scraper <MP_URL>         │
+│       │                                                  │
+│  Dockerfile (Chromium + Selenium + BS4)                 │
+│       │                                                  │
+│  crawl_area() ──► scrape_routes.py                      │
+│                                                          │
+└──────────────────────┬───────────────────────────────────┘
+                       │ psycopg2 / DATABASE_URL
+                       ▼
+         ┌─────────────────────────┐
+         │  Neon PostgreSQL (free) │  ◄── shared between scraper
+         └────────────┬────────────┘       and hosted API
+                      │
+         ┌────────────▼────────────┐
+         │  Render (free tier)     │
+         │  FastAPI  api.py        │
+         │  Dockerfile.api         │
+         │  GET /areas             │
+         │  GET /routes            │
+         └─────────────────────────┘
+```
+
+---
+
+## API Reference
+
+All endpoints are served on port `8000`.  
+Interactive docs: `http://localhost:8000/docs` (local) or `https://<your-render-app>.onrender.com/docs` (hosted).
+
+### Operations
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Liveness probe |
+| `POST` | `/setup` | Initialise DB schema (`?reset=true` to drop first) |
+
+### Scraper
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/scrape` | Submit a crawl job; returns a `task_id` |
+| `GET` | `/status/{task_id}` | Poll job status: `queued` → `running` → `complete`/`failed` |
+
+### Data Query
+
+| Method | Path | Query params | Description |
+|--------|------|-------------|-------------|
+| `GET` | `/areas` | `level`, `parent_id`, `q`, `limit` | List/search all areas |
+| `GET` | `/areas/{area_id}` | — | Fetch a single area |
+| `GET` | `/areas/{area_id}/routes` | — | All routes under an area |
+| `GET` | `/routes` | `parent_id`, `rating`, `q`, `limit` | List/search routes |
+| `GET` | `/routes/{route_id}` | — | Fetch a single route |
+
+**Example — search routes by name:**
+```bash
+curl "https://<your-app>.onrender.com/routes?q=nose&limit=10"
+```
+
+**Example — submit a local crawl:**
+```bash
+curl -X POST http://localhost:8000/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.mountainproject.com/area/105792216/nevermind-wall"}'
+# returns {"task_id": "a1b2c3d4-...", "status": "queued"}
+
+curl http://localhost:8000/status/a1b2c3d4-...
+# {"task_id": "...", "status": "complete", "message": "Scraping finished successfully."}
+```
+
+---
 
 ## Database Schema
 
-The scraper populates a MySQL database with the following data structures:
+PostgreSQL — no spatial extensions required; coordinates stored as plain `DOUBLE PRECISION` columns.
 
-### Climbing Areas
+```
+State
+  state_id   BIGINT PK
+  state      VARCHAR(255)
 
-- **Name**: Area name
-- **ID**: Mountain Project unique identifier
-- **Latitude/Longitude**: Geographic coordinates
-- **Parent ID**: Reference to parent area (for hierarchy)
+SubLocationsLv1 … SubLocationsLv10
+  location_id    BIGINT PK
+  location_name  VARCHAR(255)
+  parent_id      BIGINT
+  latitude       DOUBLE PRECISION
+  longitude      DOUBLE PRECISION
 
-### Routes
+Routes
+  route_id    BIGINT PK
+  route_name  VARCHAR(255)
+  parent_id   BIGINT
+  rating      VARCHAR(50)
 
-- **Name**: Route name
-- **ID**: Mountain Project unique identifier  
-- **Latitude/Longitude**: Geographic coordinates
-- **Parent ID**: Reference to parent area
-- **Rating**: Climbing grade (e.g., 5.11c, V6)
-
-### Data Hierarchy
-
-The scraper maintains the Mountain Project location hierarchy:
-
-```txt
-All Locations (root)
-├── State (Sub-Area Level 1)
-│   ├── Region (Sub-Area Level 2)
-│   │   ├── Crag (Sub-Area Level 3)
-│   │   │   └── Routes
-│   │   └── More Areas...
-│   └── More Regions...
-└── More States...
+VIEW all_areas   ← unions State + all SubLocationsLv* for easy querying
+  area_id, area_name, level, parent_id, latitude, longitude
 ```
 
-## Requirements
+Hierarchy mirrors Mountain Project:
 
-- Python 3.11+
-- Chrome/Chromium browser (for Docker)
-- MySQL database
-- Required Python packages (see `requirements.txt`)
+```
+State (level 0)
+  └─ Region (level 1)
+       └─ Crag (level 2)
+            └─ Wall (level 3+)
+                 └─ Routes
+```
 
-## Installation & Setup
+---
 
-### Option 1: Docker (Recommended)
+## Quick Start — Local Scraping
 
-1. **Clone the repository**:
+**Prerequisites:** Docker Desktop.
 
-   ```bash
-   git clone https://github.com/cweber12/climbing-route-scraper.git
-   cd route_scraper
-   ```
-
-2. **Configure environment variables**:
-
-   Create a `.env` file with your database credentials:
-
-   ```env
-   DB_HOST=your-database-host
-   DB_USER=your-username
-   DB_PASSWORD=your-password
-   DB_NAME=your-database-name
-   DB_PORT=3306
-   ```
-
-3. **Build the Docker image**:
-
-   ```bash
-   docker build -t route-scraper .
-   ```
-
-4. **Run the scraper**:
-
-   ```bash
-   docker run --env-file .env route-scraper "https://www.mountainproject.com/area/105792216/nevermind-wall"
-   ```
-
-### Option 2: Local Installation
-
-1. **Install dependencies**:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. **Install Chrome/Chromium and ChromeDriver**
-
-3. **Configure environment variables** (create `.env` file as above)
-
-4. **Run the scraper**:
-
-   ```bash
-   python scrape_routes.py "https://www.mountainproject.com/area/105792216/nevermind-wall"
-   ```
-
-## Usage
-
-### Basic Usage
+**1. Clone and configure:**
 
 ```bash
-python scrape_routes.py <MOUNTAIN_PROJECT_URL>
+git clone https://github.com/cweber12/climbing-route-scraper.git
+cd climbing-route-scraper
+cp .env.example .env
 ```
 
-### Examples
+Edit `.env` — set `DATABASE_URL` to your Neon connection string (see [Hosting Guide](#hosting-guide--free-tier-stack)), or use the individual `DB_*` vars to point at a local PostgreSQL instance.
+
+**2. Start the full local stack (PostgreSQL + API):**
 
 ```bash
-# Scrape a specific climbing area
-python scrape_routes.py "https://www.mountainproject.com/area/105792216/nevermind-wall"
-
-# Scrape a state-level area (will crawl all sub-areas)
-python scrape_routes.py "https://www.mountainproject.com/area/105708956/new-hampshire"
-
-# Using Docker
-docker run --env-file .env route-scraper "https://www.mountainproject.com/area/113064302/rock-lady"
+docker compose up --build
 ```
 
-### Data Collection Scope
+**3. Initialise the schema:**
 
-When you provide a URL, the scraper will collect:
+```bash
+curl -X POST http://localhost:8000/setup
+```
 
-- The specific area or route from the URL
-- All parent areas in the hierarchy (up to "All Locations")
-- All child areas and routes (if an area URL is provided)
-- Geographic coordinates and metadata
+**4. Run a crawl:**
 
-## Files
+```bash
+# Via API (background job)
+curl -X POST http://localhost:8000/scrape \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://www.mountainproject.com/area/105792216/nevermind-wall"}'
 
-- **`scrape_routes.py`**: Main scraper script with Selenium WebDriver
-- **`route_db_connect.py`**: Database connection and data insertion utilities
-- **`create_schema.py`**: Database schema creation script
-- **`requirements.txt`**: Python package dependencies
-- **`Dockerfile`**: Container configuration for deployment
-- **`.env`**: Environment variables (not tracked in git)
+# Or directly via Docker CLI (foreground, logs to stdout)
+docker run --env-file .env climbing-route-scraper \
+  python scrape_routes.py "https://www.mountainproject.com/area/105792216/nevermind-wall"
+```
+
+---
 
 ## Environment Variables
 
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `DB_HOST` | MySQL database hostname | `localhost` |
-| `DB_USER` | Database username | `climber` |
-| `DB_PASSWORD` | Database password | `secret123` |
-| `DB_NAME` | Database name | `routes_db` |
-| `DB_PORT` | Database port | `3306` |
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Preferred | — | Full PostgreSQL connection string (e.g. from Neon). Overrides all `DB_*` vars. |
+| `DB_HOST` | If no `DATABASE_URL` | — | PostgreSQL host |
+| `DB_PORT` | No | `5432` | PostgreSQL port |
+| `DB_USER` | If no `DATABASE_URL` | — | PostgreSQL username |
+| `DB_PASSWORD` | If no `DATABASE_URL` | — | PostgreSQL password |
+| `DB_NAME` | No | `routes_db` | Database name |
 
-## Important Notes
+Copy `.env.example` to `.env`. **Never commit `.env` to source control.**
 
-- Route and area IDs correspond to Mountain Project IDs for easy cross-referencing
-- International climbing areas (outside the US) will have "International" as their Level 1 parent area
-- The scraper respects Mountain Project's structure and maintains data integrity
-- All coordinates are stored as latitude/longitude pairs
+---
 
-## Troubleshooting
+## Running Tests
 
-### Common Docker Issues
+No live database or browser required — all external interactions are mocked.
 
-If you encounter Chrome/Chromium errors in Docker, ensure your `get_driver()` function includes:
-
-```python
-options.add_argument("--no-sandbox")
-options.add_argument("--disable-dev-shm-usage")
-options.add_argument(f"--user-data-dir={tempfile.mkdtemp()}")
+```bash
+pip install -r requirements.txt
+pytest tests/ -v
 ```
 
-### Database Connection Issues
+Coverage includes HTML parsing, DB insertion logic, crawl lifecycle (driver/connection management, URL deduplication), and all API endpoints.
 
-- Verify your `.env` file contains correct database credentials
-- Ensure your MySQL server is accessible from the Docker container
-- Check that the database and required tables exist
+---
+
+## CI/CD
+
+| Workflow | Trigger | Action |
+|----------|---------|--------|
+| `ci.yml` | Push / PR to `main` | `pytest` + `ruff` lint |
+| `docker.yml` | Push to `main` or `v*.*.*` tag | Build + push to `ghcr.io/cweber12/climbing-route-scraper` |
+
+---
+
+## Hosting Guide — Free Tier Stack
+
+### Database: Neon (PostgreSQL, free forever)
+
+Neon is a serverless PostgreSQL provider with a genuinely free tier (no credit card, no expiry). PostgreSQL is the most widely used open-source database (Stack Overflow 2024 survey: #1 for three consecutive years).
+
+1. Sign up at [neon.tech](https://neon.tech) — no credit card required.
+2. Create a project → create a database named `routes_db`.
+3. Copy the **connection string** from the Neon dashboard — it looks like:
+   ```
+   postgresql://user:password@ep-xxx.us-east-2.aws.neon.tech/routes_db?sslmode=require
+   ```
+4. Set this as `DATABASE_URL` in your `.env` (local scraper) and in Render's environment variables (hosted API).
+
+**Free tier limits:** 0.5 GB storage, compute auto-suspends after 5 minutes of inactivity (resumes on next query in ~500 ms).
+
+---
+
+### API: Render (free tier)
+
+Render's free web service tier auto-deploys from GitHub, supports Docker, and includes TLS. The `Dockerfile.api` image is lean (no Chromium) so it builds in under a minute.
+
+**One-time setup:**
+
+1. Push your repo to `https://github.com/cweber12/climbing-route-scraper`.
+2. Go to [render.com](https://render.com) → **New Web Service** → connect your GitHub repo.
+3. Render will detect `render.yaml` automatically and configure the service.
+4. In the Render dashboard → **Environment** → add:
+   ```
+   DATABASE_URL = postgresql://...  (your Neon connection string)
+   ```
+5. Click **Deploy**. Your API will be live at `https://<app-name>.onrender.com`.
+6. Initialise the schema once:
+   ```bash
+   curl -X POST https://<app-name>.onrender.com/setup
+   ```
+
+**Free tier limits:** 750 hours/month (enough for one always-on service), service sleeps after 15 minutes of inactivity and wakes on the next request (~30 s cold start).
+
+---
+
+### Workflow Summary
+
+```
+┌─────────────────────────────────────────────────────┐
+│  1. Run scraper locally (Docker)                    │
+│     docker run --env-file .env <image>              │
+│       python scrape_routes.py <MP_URL>              │
+│                    │                                │
+│                    │ writes via DATABASE_URL         │
+│                    ▼                                │
+│          Neon PostgreSQL (free)                     │
+│                    │                                │
+│                    │ reads via DATABASE_URL          │
+│                    ▼                                │
+│  2. Query via hosted API (Render free tier)         │
+│     GET https://<app>.onrender.com/routes?q=nose    │
+└─────────────────────────────────────────────────────┘
+```
+
