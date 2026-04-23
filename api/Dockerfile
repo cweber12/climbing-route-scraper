@@ -19,4 +19,6 @@ USER api
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render injects PORT at runtime (default 10000 on free tier).
+# Fall back to 8000 for local docker-compose usage.
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
