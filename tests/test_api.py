@@ -2,9 +2,8 @@
 # Tests for the FastAPI endpoints.
 # No live DB or WebDriver is started — crawl_area is mocked throughout.
 
-import pytest
 from fastapi.testclient import TestClient
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from api import app, _tasks
 

@@ -8,7 +8,6 @@
 # The database itself must already exist (managed services like Neon create it for you).
 # ---------------------------------------------------------------------------
 
-import os
 from dotenv import load_dotenv
 
 load_dotenv()

@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from route_db_connect import get_connection
 import tempfile
 
 load_dotenv()
@@ -214,7 +215,6 @@ def crawl_area(url):
         conn = None
         print(f"Write mode: API  →  {api_url}")
     else:
-        from route_db_connect import get_connection
         conn = get_connection()
         writer = DatabaseWriter(conn)
         print("Write mode: direct database")

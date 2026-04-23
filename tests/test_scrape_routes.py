@@ -3,7 +3,7 @@
 # All DB and WebDriver interactions are mocked — no live network or database needed.
 
 import pytest
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock
 
 from scrape_routes import (
     extract_breadcrumbs,
@@ -160,7 +160,7 @@ class TestExtractSubareaLinks:
 
     def test_links_are_absolute(self, subarea_soup):
         links = extract_subarea_links(subarea_soup)
-        assert all(l.startswith("https://www.mountainproject.com") for l in links)
+        assert all(link.startswith("https://www.mountainproject.com") for link in links)
 
     def test_contains_expected_slugs(self, subarea_soup):
         links = extract_subarea_links(subarea_soup)

@@ -22,6 +22,7 @@ from typing import Optional
 
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query
 from pydantic import BaseModel, HttpUrl, field_validator
+from create_schema import create_schema
 
 app = FastAPI(
     title="Climbing Route Scraper",
@@ -131,7 +132,6 @@ def setup_database(reset: bool = Query(default=False, description="Drop and recr
     Initialise the database schema.  
     Pass `?reset=true` to drop existing tables first (**destructive**).
     """
-    from create_schema import create_schema
     try:
         create_schema(reset=reset)
     except Exception as exc:
