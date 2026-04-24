@@ -14,3 +14,8 @@ htmlcov/
 tests/
 README.md
 docker-compose.yml
+render.yaml
+# Exclude api/ files not needed by the scraper build;
+# api/route_db_connect.py is explicitly copied in scraper/Dockerfile.
+api/
+!api/route_db_connect.py

@@ -25,10 +25,12 @@ RUN addgroup --system scraper && adduser --system --ingroup scraper scraper
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY scraper/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy scraper source and the shared DB connector from api/
+COPY scraper/ .
+COPY api/route_db_connect.py .
 
 USER scraper
 

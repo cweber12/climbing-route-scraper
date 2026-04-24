@@ -1,0 +1,4 @@
+{
+  "extraPaths": ["api", "scraper"],
+  "exclude": ["**/__pycache__", ".git", "htmlcov"]
+}
