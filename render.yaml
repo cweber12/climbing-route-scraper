@@ -5,7 +5,7 @@ services:
     dockerfilePath: ./api/Dockerfile
     dockerContext: ./api
     healthCheckPath: /health
+    autoDeployTrigger: checksPass   # only deploy after CI passes
     envVars:
       - key: DATABASE_URL
         sync: false   # set this manually in the Render dashboard — never commit it
-    autoDeploy: true

@@ -179,7 +179,8 @@ def _crawl(url, driver, writer, visited_ids, visited_urls):
     for i, entry in enumerate(hierarchy):
         if entry["id"] in visited_ids:
             continue
-        sub_soup = get_soup(entry["url"], driver)
+        # Reuse the already-fetched soup for the current page to avoid a redundant fetch
+        sub_soup = soup if entry["url"] == url else get_soup(entry["url"], driver)
         if not sub_soup:
             continue
         lat, lng = extract_coordinates(sub_soup)
