@@ -128,7 +128,9 @@ def insert_location(level, loc_id, name, parent_id, lat, lng, conn):
             f"INSERT INTO {table} (location_id, location_name, parent_id, latitude, longitude) "
             "VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (location_id) DO UPDATE SET "
-            "location_name = EXCLUDED.location_name, parent_id = EXCLUDED.parent_id;",
+            "location_name = EXCLUDED.location_name, parent_id = EXCLUDED.parent_id, "
+            f"latitude = COALESCE(EXCLUDED.latitude, {table}.latitude), "
+            f"longitude = COALESCE(EXCLUDED.longitude, {table}.longitude);",
             (loc_id, name, parent_id, lat, lng)
         )
     conn.commit()
@@ -236,7 +238,11 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python scrape_routes.py <START_URL>")
         print("Please provide exactly one argument: the start URL.")
-    else:
-        crawl_area(sys.argv[1])
+        sys.exit(1)
+    url = sys.argv[1]
+    if "mountainproject.com" not in url:
+        print("Error: URL must be a mountainproject.com URL")
+        sys.exit(1)
+    crawl_area(url)
 
 

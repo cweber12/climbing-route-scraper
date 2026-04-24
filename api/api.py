@@ -108,7 +108,14 @@ def _run_scrape(task_id: str, url: str) -> None:
     with _tasks_lock:
         _tasks[task_id] = {"status": "running", "message": ""}
     try:
-        from scrape_routes import crawl_area
+        try:
+            from scrape_routes import crawl_area
+        except ImportError:
+            raise RuntimeError(
+                "scrape_routes is not available in this deployment. "
+                "Run the local scraper instead: "
+                "docker-compose run --rm scraper python scrape_routes.py <URL>"
+            )
         crawl_area(url)
         with _tasks_lock:
             _tasks[task_id] = {"status": "complete", "message": "Scraping finished successfully."}
@@ -343,7 +350,9 @@ def upsert_area(area_id: int, body: AreaUpsertRequest):
                     f"INSERT INTO {table} (location_id, location_name, parent_id, latitude, longitude) "
                     "VALUES (%s, %s, %s, %s, %s) "
                     "ON CONFLICT (location_id) DO UPDATE SET "
-                    "location_name = EXCLUDED.location_name, parent_id = EXCLUDED.parent_id;",
+                    "location_name = EXCLUDED.location_name, parent_id = EXCLUDED.parent_id, "
+                    f"latitude = COALESCE(EXCLUDED.latitude, {table}.latitude), "
+                    f"longitude = COALESCE(EXCLUDED.longitude, {table}.longitude);",
                     (area_id, body.area_name, body.parent_id, body.latitude, body.longitude),
                 )
         conn.commit()

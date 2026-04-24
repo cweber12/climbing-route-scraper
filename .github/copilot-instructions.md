@@ -23,6 +23,7 @@ external apps           ──GET──▶ Render API (api/)
 
 ```bash
 pytest tests/ -v                              # run test suite from project root
+docker-compose build scraper                  # (re)build local scraper image after scraper/ changes
 docker-compose run --rm scraper python scrape_routes.py <URL>   # run scraper
 docker-compose up db                          # start local PostgreSQL only
 ```
@@ -38,10 +39,11 @@ docker-compose up db                          # start local PostgreSQL only
 ## Git Workflow
 
 After completing any set of changes:
-1. Stage all modified files: `git add -A`
-2. Generate a [Conventional Commits](https://www.conventionalcommits.org/) message:
+1. If any file under `scraper/` was modified, run `docker-compose build scraper` to rebuild the local image.
+2. Stage all modified files: `git add -A`
+3. Generate a [Conventional Commits](https://www.conventionalcommits.org/) message:
    - `feat:` new capability, `fix:` bug fix, `refactor:` structural change, `chore:` config/tooling
    - Body lines summarise each changed file or logical group (max ~72 chars per line)
-3. Commit and push immediately: `git commit -m "<subject>" -m "<body>"` then `git push`
+4. Commit and push immediately: `git commit -m "<subject>" -m "<body>"` then `git push`
 
 Do this automatically after every task without waiting to be asked.
