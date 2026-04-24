@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-and-push:
-    name: Build & Push to GHCR
+    name: Build & Push API image to GHCR
     runs-on: ubuntu-latest
 
     permissions:
@@ -30,7 +30,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/cweber12/climbing-route-scraper
+          images: ghcr.io/cweber12/climbing-route-scraper-api
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
@@ -40,13 +40,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and push Docker image
+      - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
-          context: ./scraper
-          file: ./scraper/Dockerfile
+          context: ./api
+          file: ./api/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Trigger Render deploy
+        # Only run on branch pushes (not tags) and only when the secret is set
+        if: github.ref == 'refs/heads/main' && secrets.RENDER_DEPLOY_HOOK_URL != ''
+        run: curl -s --fail "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
