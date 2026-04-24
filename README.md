@@ -1,7 +1,6 @@
 # Climbing Route Scraper
 
-[![CI](https://github.com/cweber12/climbing-route-scraper/actions/workflows/ci.yml/badge.svg)](https://github.com/cweber12/climbing-route-scraper/actions/workflows/ci.yml)
-[![Docker](https://github.com/cweber12/climbing-route-scraper/actions/workflows/docker.yml/badge.svg)](https://github.com/cweber12/climbing-route-scraper/actions/workflows/docker.yml)
+[![Pipeline](https://github.com/cweber12/climbing-route-scraper/actions/workflows/pipeline.yml/badge.svg)](https://github.com/cweber12/climbing-route-scraper/actions/workflows/pipeline.yml)
 
 A two-part system for collecting and serving climbing data from [Mountain Project](https://www.mountainproject.com):
 
@@ -21,6 +20,7 @@ A two-part system for collecting and serving climbing data from [Mountain Projec
     - [Data Query](#data-query)
   - [Database Schema](#database-schema)
   - [Quick Start — Local Scraping](#quick-start--local-scraping)
+    - [Local-Only Mode (no Render)](#local-only-mode-no-render)
   - [Environment Variables](#environment-variables)
   - [Running Tests](#running-tests)
   - [CI/CD](#cicd)
@@ -33,30 +33,41 @@ A two-part system for collecting and serving climbing data from [Mountain Projec
 
 ## Architecture
 
+The system has two write modes, controlled by the `API_URL` environment variable:
+
 ```
-┌─────────────────── Local Machine ───────────────────────┐
-│                                                          │
-│  docker run ... climbing-route-scraper <MP_URL>         │
-│       │                                                  │
-│  Dockerfile (Chromium + Selenium + BS4)                 │
-│       │                                                  │
-│  crawl_area() ──► scrape_routes.py                      │
-│                                                          │
-└──────────────────────┬───────────────────────────────────┘
-                       │ psycopg2 / DATABASE_URL
-                       ▼
-         ┌─────────────────────────┐
-         │  Neon PostgreSQL (free) │  ◄── shared between scraper
-         └────────────┬────────────┘       and hosted API
-                      │
-         ┌────────────▼────────────┐
-         │  Render (free tier)     │
-         │  FastAPI  api.py        │
-         │  Dockerfile.api         │
-         │  GET /areas             │
-         │  GET /routes            │
-         └─────────────────────────┘
+┌─────────────────────── Local Machine ──────────────────────────┐
+│                                                                 │
+│  docker-compose run --rm scraper python scrape_routes.py <URL> │
+│       │                                                         │
+│  scraper/Dockerfile  (Chromium + Selenium + BS4)               │
+│       │                                                         │
+│  crawl_area()  →  ApiWriter  (API_URL set — recommended)       │
+│       │           or                                            │
+│       │           DatabaseWriter  (API_URL unset — local only) │
+│       │                                                         │
+└───────┼─────────────────────────────────────────────────────────┘
+        │ HTTP PUT                         │ psycopg2 (direct)
+        ▼                                  ▼
+┌───────────────────┐           ┌──────────────────────┐
+│  Render (free)    │           │  local PostgreSQL     │
+│  FastAPI api.py   │──────────►│  (docker-compose db)  │
+│  PUT /areas       │ psycopg2  └──────────────────────┘
+│  PUT /areas/routes│
+│  GET /areas       │
+│  GET /routes      │
+└────────┬──────────┘
+         │ psycopg2
+         ▼
+┌──────────────────────┐
+│  Neon PostgreSQL     │
+│  (free, hosted)      │
+└──────────────────────┘
 ```
+
+**Recommended flow** (`API_URL` set in `.env`): scraper runs locally → calls `PUT` endpoints on the Render-hosted API → API writes to Neon. The local machine never needs database credentials.
+
+**Local-only flow** (`API_URL` empty): scraper writes directly to the `db` container via `DATABASE_URL`. Useful for development without a Render deployment.
 
 ---
 
@@ -157,31 +168,40 @@ cd climbing-route-scraper
 cp .env.example .env
 ```
 
-Edit `.env` — set `DATABASE_URL` to your Neon connection string (see [Hosting Guide](#hosting-guide--free-tier-stack)), or use the individual `DB_*` vars to point at a local PostgreSQL instance.
+Edit `.env`:
+- Set `API_URL` to your deployed Render service URL (e.g. `https://climbing-route-scraper-api.onrender.com`).
+- Leave `DATABASE_URL` empty if using the Render/Neon path — the scraper never needs DB credentials when `API_URL` is set.
 
-**2. Start the full local stack (PostgreSQL + API):**
+**2. Initialise the schema on Neon (one-time):**
 
 ```bash
-docker compose up --build
+curl -X POST https://<your-render-app>.onrender.com/setup
 ```
 
-**3. Initialise the schema:**
+**3. Build the scraper image:**
 
 ```bash
-curl -X POST http://localhost:8000/setup
+docker-compose build scraper
 ```
 
 **4. Run a crawl:**
 
 ```bash
-# Via API (background job)
-curl -X POST http://localhost:8000/scrape \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://www.mountainproject.com/area/105792216/nevermind-wall"}'
+docker-compose run --rm scraper python scrape_routes.py \
+  "https://www.mountainproject.com/area/105792216/nevermind-wall"
+```
 
-# Or directly via Docker CLI (foreground, logs to stdout)
-docker run --env-file .env climbing-route-scraper \
-  python scrape_routes.py "https://www.mountainproject.com/area/105792216/nevermind-wall"
+The scraper connects to `API_URL`, calls `PUT /areas` and `PUT /areas/{id}/routes`, and the Render API writes everything to Neon.
+
+---
+
+### Local-Only Mode (no Render)
+
+Set `API_URL=` (empty) in `.env` and provide a `DATABASE_URL` pointing at the local `db` container:
+
+```bash
+docker-compose up db          # start PostgreSQL
+docker-compose run --rm scraper python scrape_routes.py <URL>
 ```
 
 ---
@@ -190,7 +210,8 @@ docker run --env-file .env climbing-route-scraper \
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `DATABASE_URL` | Preferred | — | Full PostgreSQL connection string (e.g. from Neon). Overrides all `DB_*` vars. |
+| `API_URL` | **Yes (recommended)** | — | URL of your deployed Render API (e.g. `https://your-app.onrender.com`). When set, the scraper sends data via HTTP PUT — no DB credentials needed locally. Leave blank to write directly to the DB. |
+| `DATABASE_URL` | If no `API_URL` | — | Full PostgreSQL connection string (Neon or local). Overrides all `DB_*` vars. |
 | `DB_HOST` | If no `DATABASE_URL` | — | PostgreSQL host |
 | `DB_PORT` | No | `5432` | PostgreSQL port |
 | `DB_USER` | If no `DATABASE_URL` | — | PostgreSQL username |
@@ -216,10 +237,16 @@ Coverage includes HTML parsing, DB insertion logic, crawl lifecycle (driver/conn
 
 ## CI/CD
 
-| Workflow | Trigger | Action |
-|----------|---------|--------|
-| `ci.yml` | Push / PR to `main` | `pytest` + `ruff` lint |
-| `docker.yml` | Push to `main` or `v*.*.*` tag | Build + push to `ghcr.io/cweber12/climbing-route-scraper` |
+A single `pipeline.yml` workflow handles everything:
+
+| Job | Trigger | Action |
+|-----|---------|--------|
+| `test` | Push / PR to `main` | `pytest tests/ -v --tb=short` |
+| `lint` | Push / PR to `main` | `ruff check .` |
+| `build-and-push` | Push to `main` or `v*.*.*` tag (after test + lint pass) | Build `api/Dockerfile` → push `ghcr.io/cweber12/climbing-route-scraper-api` → trigger Render deploy hook |
+
+The scraper image is **never pushed to GHCR** — it is built locally only.  
+Add `RENDER_DEPLOY_HOOK_URL` as a GitHub Actions secret to enable automatic Render redeploys after each push.
 
 ---
 
@@ -243,7 +270,7 @@ Neon is a serverless PostgreSQL provider with a genuinely free tier (no credit c
 
 ### API: Render (free tier)
 
-Render's free web service tier auto-deploys from GitHub, supports Docker, and includes TLS. The `Dockerfile.api` image is lean (no Chromium) so it builds in under a minute.
+Render's free web service tier auto-deploys from GHCR, includes TLS. The `api/Dockerfile` image is lean (no Chromium) so it builds in under a minute.
 
 **One-time setup:**
 
@@ -267,19 +294,25 @@ Render's free web service tier auto-deploys from GitHub, supports Docker, and in
 ### Workflow Summary
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  1. Run scraper locally (Docker)                    │
-│     docker run --env-file .env <image>              │
-│       python scrape_routes.py <MP_URL>              │
-│                    │                                │
-│                    │ writes via DATABASE_URL         │
-│                    ▼                                │
-│          Neon PostgreSQL (free)                     │
-│                    │                                │
-│                    │ reads via DATABASE_URL          │
-│                    ▼                                │
-│  2. Query via hosted API (Render free tier)         │
-│     GET https://<app>.onrender.com/routes?q=nose    │
-└─────────────────────────────────────────────────────┘
+Git push to main
+  └─▶ pipeline.yml
+        ├─ test (pytest)   ─┐
+        ├─ lint (ruff)      ├─► both must pass
+        └─ build-and-push ◄─┘
+             │
+             ├─ builds api/Dockerfile
+             ├─ pushes ghcr.io/cweber12/climbing-route-scraper-api:main
+             └─ calls RENDER_DEPLOY_HOOK_URL → Render pulls new image
+
+Local machine
+  └─▶ docker-compose run --rm scraper python scrape_routes.py <URL>
+             │
+             │  (API_URL set)
+             └─► PUT https://<render-app>.onrender.com/areas/...
+                       │
+                       └─► Neon PostgreSQL (INSERT/UPDATE)
+
+External apps
+  └─▶ GET https://<render-app>.onrender.com/routes?q=...
 ```
 

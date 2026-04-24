@@ -2,7 +2,7 @@
 # Combines deps from api/ and scraper/ so the test suite can import both.
 # Do NOT use this in either Docker image; each service has its own requirements.txt.
 
-psycopg2-binary==2.9.9
+psycopg2-binary>=2.9.9
 python-dotenv==1.0.1
 beautifulsoup4==4.12.3
 selenium==4.21.0
