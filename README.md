@@ -19,11 +19,13 @@ A two-part system for collecting and serving climbing data from [Mountain Projec
     - [Scraper](#scraper)
     - [Data Query](#data-query)
   - [Database Schema](#database-schema)
+  - [Local Development Setup](#local-development-setup)
   - [Quick Start — Local Scraping](#quick-start--local-scraping)
     - [Local-Only Mode (no Render)](#local-only-mode-no-render)
   - [Environment Variables](#environment-variables)
   - [Running Tests](#running-tests)
   - [CI/CD](#cicd)
+    - [Manual API Image Build and Push](#manual-api-image-build-and-push)
   - [Hosting Guide — Free Tier Stack](#hosting-guide--free-tier-stack)
     - [Database: Neon (PostgreSQL, free forever)](#database-neon-postgresql-free-forever)
     - [API: Render (free tier)](#api-render-free-tier)
@@ -156,6 +158,37 @@ State (level 0)
 
 ---
 
+## Local Development Setup
+
+**Prerequisites:** Python 3.11–3.13, Docker Desktop.
+
+```powershell
+# 1. Clone
+git clone https://github.com/cweber12/climbing-route-scraper.git
+cd climbing-route-scraper
+
+# 2. Create and activate a virtual environment
+python -m venv .venv
+.venv\Scripts\Activate.ps1          # Windows PowerShell
+# source .venv/bin/activate          # macOS / Linux
+
+# 3. Install all dependencies (API + scraper + test tooling)
+pip install -r requirements.txt
+
+# 4. Run the test suite (no live DB or browser required)
+pytest tests/ -v
+```
+
+> **Note (Windows / Python 3.13):** Some packages (`psycopg2-binary`, `lxml`) only gained
+> Python 3.13 binary wheels in recent releases. The pinned versions in this repo use `>=`
+> lower bounds so pip resolves a compatible pre-built wheel automatically. If you see a
+> *"Building wheel … failed"* error, upgrade pip first:
+> ```
+> python -m pip install --upgrade pip
+> ```
+
+---
+
 ## Quick Start — Local Scraping
 
 **Prerequisites:** Docker Desktop.
@@ -247,6 +280,32 @@ A single `pipeline.yml` workflow handles everything:
 
 The scraper image is **never pushed to GHCR** — it is built locally only.  
 Add `RENDER_DEPLOY_HOOK_URL` as a GitHub Actions secret to enable automatic Render redeploys after each push.
+
+### Manual API Image Build and Push
+
+Use this when you need to publish the API image without triggering the full CI pipeline (e.g. hotfix, first-time setup, or CI is broken).
+
+**Prerequisites:** Docker Desktop, a [GitHub Personal Access Token (PAT)](https://github.com/settings/tokens) with `write:packages` scope.
+
+```bash
+# 1. Log in to GHCR
+echo "<YOUR_PAT>" | docker login ghcr.io -u cweber12 --password-stdin
+
+# 2. Build the API image from the api/ directory
+docker build -t ghcr.io/cweber12/climbing-route-scraper-api:main ./api
+
+# 3. Push to GHCR
+docker push ghcr.io/cweber12/climbing-route-scraper-api:main
+```
+
+**4. Trigger a Render redeploy (optional):**  
+Either click **Manual Deploy** in the Render dashboard, or call your deploy hook directly:
+
+```bash
+curl "https://api.render.com/deploy/<your-deploy-hook-id>?key=<your-key>"
+```
+
+The deploy hook URL is found in the Render dashboard under **Settings → Deploy Hooks**.
 
 ---
 
