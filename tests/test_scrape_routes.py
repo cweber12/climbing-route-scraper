@@ -142,9 +142,9 @@ class TestExtractRoutes:
 
     def test_none_rating_when_no_yds_span(self):
         html = """
-        <table id="left-nav-route-table">
-          <tr><td><a href="/route/999/unnamed">Unnamed</a></td></tr>
-        </table>
+        <div class="lef-nav-row">
+          <a href="/route/999/unnamed">Unnamed</a>
+        </div>
         """
         routes = extract_routes(make_soup(html))
         assert routes[0]["rating"] is None

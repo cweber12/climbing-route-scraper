@@ -59,7 +59,13 @@ def extract_breadcrumbs(soup):
 # Extract current location details
 def extract_current_location(soup, fallback_url):
     h1 = soup.find("h1")
-    name = h1.text.strip() if h1 else "Unknown"
+    # Use only the first direct text node to avoid picking up child spans
+    # e.g. <h1>Bardini Boulders <span class="hidden-md-down">Climbing</span></h1>
+    if h1:
+        first_text = h1.find(string=True, recursive=False)
+        name = first_text.strip() if first_text else h1.text.strip()
+    else:
+        name = "Unknown"
     canonical = soup.find("link", {"rel": "canonical"})
     url = canonical["href"] if canonical and canonical.has_attr("href") else fallback_url
     match = re.search(r"/area/(\d+)", url)
@@ -89,24 +95,28 @@ def extract_subarea_links(soup):
         for a in soup.select("div.lef-nav-row a[href*='/area/']")
     ]
 
-# Extract routes listed on the page
+# Extract routes listed in the left-nav sidebar.
+# Mountain Project area pages with direct routes use div.lef-nav-row links,
+# the same pattern used for sub-area links but with /route/ hrefs.
 def extract_routes(soup):
     routes = []
-    table = soup.find("table", id="left-nav-route-table")
-    if table:
-        for row in table.find_all("tr"):
-            link = row.find("a", href=lambda h: h and "/route/" in h)
-            rating = row.find("span", class_="rateYDS")
-            if link:
-                name = link.text.strip()
-                url = urljoin("https://www.mountainproject.com", link["href"])
-                route_id = int(re.search(r"/route/(\d+)", link["href"]).group(1))
-                routes.append({
-                    "id": route_id,
-                    "name": name,
-                    "url": url,
-                    "rating": rating.text.strip() if rating else None
-                })
+    for a in soup.select("div.lef-nav-row a[href*='/route/']"):
+        href = a.get("href", "")
+        route_match = re.search(r"/route/(\d+)", href)
+        if not route_match:
+            continue
+        route_id = int(route_match.group(1))
+        name = a.text.strip()
+        url = urljoin("https://www.mountainproject.com", href)
+        row = a.find_parent("div", class_="lef-nav-row")
+        rating_span = row.find("span", class_="rateYDS") if row else None
+        rating = rating_span.text.strip() if rating_span else None
+        routes.append({
+            "id": route_id,
+            "name": name,
+            "url": url,
+            "rating": rating,
+        })
     return routes
 
 # Insert location into DB

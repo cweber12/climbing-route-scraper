@@ -36,16 +36,14 @@ COORDINATES_HTML = """
 
 ROUTES_HTML = """
 <html><body>
-<table id="left-nav-route-table">
-  <tr>
-    <td><a href="/route/106261520/the-nose">The Nose</a></td>
-    <td><span class="rateYDS">5.9</span></td>
-  </tr>
-  <tr>
-    <td><a href="/route/106261521/zodiac">Zodiac</a></td>
-    <td><span class="rateYDS">5.11a</span></td>
-  </tr>
-</table>
+<div class="lef-nav-row">
+  <a href="/route/106261520/the-nose">The Nose</a>
+  <span class="rateYDS">5.9</span>
+</div>
+<div class="lef-nav-row">
+  <a href="/route/106261521/zodiac">Zodiac</a>
+  <span class="rateYDS">5.11a</span>
+</div>
 </body></html>
 """
 
